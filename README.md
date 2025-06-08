@@ -21,10 +21,3 @@ def main():
 
 if __name__ == "__main__":
     app()
-New Dependencies (requirements.txt):
-
-typer[all]==0.9.0
-rich==13.7.1
-pyfiglet==0.8.post1
-python-magic==0.4.27
-cve-bin-tool==4.0
