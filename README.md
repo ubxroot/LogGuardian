@@ -14,26 +14,26 @@
 git clone https://github.com/yourusername/logguardian.git
 cd logguardian
 pip install -r requirements.txt
-cd logguardian  # Your project directory
+cd logguardian
 
-# Initialize Git
-git init
+## Clone repository
 
-# Create README
-echo "# LogGuardian" > README.md
+git clone https://github.com/yourusername/logguardian.git
+cd logguardian
 
-# Create Python .gitignore
-curl -o .gitignore https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
-
-# Add MIT License
-curl -o LICENSE https://raw.githubusercontent.com/github/choosealicense.com/gh-pages/_licenses/mit.txt
-# Clone the repo
-git clone https://github.com/ubxroot/LogGuardian.git
-cd LogGuardian
-
-# Install dependencies
+## Install dependencies
 pip install -r requirements.txt
 
-# Run it
-python logguardian.py analyze /path/to/logfile.log --output-format table
-python logguardian.py config-check /path/to/config/file.conf ssh
+## Make script executable
+chmod +x logguardian.py
+
+## Install system dependency for file type detection
+sudo apt-get install libmagic1  # For Debian/Ubuntu
+## Log analysis with table output
+./logguardian.py analyze /var/log/auth.log
+
+## Binary analysis with CVE checks and HTML report
+./logguardian.py scan-binary suspicious.exe --cve --output-format html --output-file report.html
+
+## SSH config security audit
+./logguardian.py config-check /etc/ssh/sshd_config ssh
