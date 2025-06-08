@@ -194,3 +194,17 @@ def config_check(
 
 if __name__ == "__main__":
     app()
+    
+import subprocess
+import sys
+
+@app.command()
+def update():
+    """Update LogGuardian by pulling the latest changes from GitHub."""
+    try:
+        result = subprocess.run(['git', 'pull'], capture_output=True, text=True, check=True)
+        print(result.stdout)
+        print("\nUpdate completed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error during update: {e.stderr}")
+        sys.exit(1)
