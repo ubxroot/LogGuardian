@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 LogGuardian - Blue Team Security Analyzer 🔐
-Unified CLI tool for log analysis, config auditing, and security monitoring.
+Robust CLI tool for security log analysis and configuration auditing
 """
 
 import typer
@@ -9,210 +9,160 @@ import re
 import json
 import sys
 import subprocess
-import hashlib
-import requests
-import os
 from pathlib import Path
-from datetime import datetime
+from typing import Optional, Dict, Pattern
 from collections import defaultdict
-from typing import Optional
 from rich.console import Console
 from rich.table import Table
 import pyfiglet
 
+# ====== Initialization ======
 app = typer.Typer()
 console = Console()
 
-# ====== Banner ======
-def show_banner():
-    banner = pyfiglet.figlet_format("UBXROOT", font="slant")
-    console.print(f"[bright_cyan]{banner}[/bright_cyan]")
-    console.print("[bright_yellow]LogGuardian - Blue Team Security Analyzer v1.0[/bright_yellow]\n")
-
-# ====== Default Patterns and Remedies ======
+# ====== Core Configuration ======
+CONFIG_FILE = Path.home() / ".logguardian.json"
 DEFAULT_PATTERNS = {
-    "ssh_bruteforce": r"Failed password for .* from (\d+\.\d+\.\d+\.\d+)",
-    "port_scan": r"Connection reset by (\d+\.\d+\.\d+\.\d+) port \d+",
-    "sql_injection": r"(\'|--|;|UNION.*SELECT)",
-    "xss_attempt": r"<script.*?>.*?</script>",
-    "cve": r"CVE-\d{4}-\d{4,7}",
+    "ssh_bruteforce": re.compile(r"Failed password for .* from (\d+\.\d+\.\d+\.\d+)", re.IGNORECASE),
+    "port_scan": re.compile(r"Connection reset by (\d+\.\d+\.\d+\.\d+) port \d+"),
+    "sql_injection": re.compile(r"(\'|--|;|UNION.*SELECT)", re.IGNORECASE),
 }
 DEFAULT_REMEDIES = {
-    "ssh_bruteforce": "Block source IP, enable fail2ban, and use key-based authentication.",
-    "port_scan": "Investigate source IP, consider blocking, and monitor for further activity.",
-    "sql_injection": "Sanitize inputs, use parameterized queries, and check WAF logs.",
-    "xss_attempt": "Sanitize user input, set CSP headers, and review web app code.",
-    "cve": "Check system for relevant patches and update vulnerable software."
+    "ssh_bruteforce": "1. Block source IP in firewall\n2. Review auth logs\n3. Enable fail2ban",
+    "port_scan": "1. Investigate source IP\n2. Check firewall rules\n3. Monitor network",
+    "sql_injection": "1. Validate inputs\n2. Use parameterized queries\n3. Check WAF logs",
 }
 
-CONFIG_FILE = Path.home() / ".logguardian_config.json"
+# ====== Helper Functions ======
+def show_banner():
+    """Display tool banner"""
+    banner = pyfiglet.figlet_format("UBXROOT", font="slant")
+    console.print(f"[bright_cyan]{banner}[/bright_cyan]")
+    console.print("[bright_yellow]LogGuardian - Security Analyzer v1.0[/bright_yellow]\n")
 
-def load_patterns():
-    if CONFIG_FILE.exists():
-        with open(CONFIG_FILE) as f:
-            data = json.load(f)
-        patterns = {**DEFAULT_PATTERNS, **data.get("patterns", {})}
-        remedies = {**DEFAULT_REMEDIES, **data.get("remedies", {})}
-    else:
-        patterns = DEFAULT_PATTERNS.copy()
-        remedies = DEFAULT_REMEDIES.copy()
-    # Compile regex
-    patterns = {k: re.compile(v, re.IGNORECASE) for k, v in patterns.items()}
-    return patterns, remedies
+def load_config() -> Dict:
+    """Load configuration with error handling"""
+    try:
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE) as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        console.print(f"[red]Config error: {str(e)}[/red]")
+        return {}
 
-def save_patterns(patterns, remedies):
-    # Save only custom (non-default) patterns/remedies
-    custom_patterns = {k: v.pattern for k, v in patterns.items() if k not in DEFAULT_PATTERNS}
-    custom_remedies = {k: v for k, v in remedies.items() if k not in DEFAULT_REMEDIES}
-    with open(CONFIG_FILE, "w") as f:
-        json.dump({"patterns": custom_patterns, "remedies": custom_remedies}, f, indent=2)
+def save_config(data: Dict):
+    """Save configuration with error handling"""
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        console.print(f"[red]Failed to save config: {str(e)}[/red]")
 
-# ====== Log Analysis ======
-def analyze_log_file(log_file: Path, patterns, remedies):
-    stats = defaultdict(int)
-    findings = defaultdict(list)
-    total_lines = 0
+# ====== Core Analysis Functions ======
+def analyze_logs(file_path: Path) -> Dict:
+    """Analyze log file with security patterns"""
+    results = defaultdict(int)
+    patterns = {**DEFAULT_PATTERNS, **load_config().get("patterns", {})}
+    
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                for name, pattern in patterns.items():
+                    if pattern.search(line):
+                        results[name] += 1
+        return dict(results)
+    except FileNotFoundError:
+        console.print(f"[red]Error: File {file_path} not found[/red]")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"[red]Analysis failed: {str(e)}[/red]")
+        sys.exit(1)
 
-    with open(log_file, encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            total_lines += 1
-            for name, pattern in patterns.items():
-                if pattern.search(line):
-                    stats[name] += 1
-                    findings[name].append(line.strip())
-    return stats, findings, total_lines
-
-# ====== Config Analysis ======
-def analyze_config_file(config_file: Path, config_type: str):
-    issues = []
-    with open(config_file, encoding="utf-8", errors="ignore") as f:
-        content = f.read()
+def audit_config(config_path: Path, config_type: str) -> list:
+    """Audit configuration files"""
+    try:
+        with open(config_path, "r") as f:
+            content = f.read().lower()
+            
+        issues = []
         if config_type == "ssh":
-            if "PermitRootLogin yes" in content:
-                issues.append("PermitRootLogin is enabled (should be 'no').")
-            if "PasswordAuthentication yes" in content:
-                issues.append("PasswordAuthentication is enabled (should be 'no').")
-        # Extend for nginx/apache as needed
-    return issues
-
-# ====== Threat Intel (Dummy/Optional) ======
-def check_threat_ip(ip: str) -> bool:
-    # Example: Replace with actual API if needed
-    # resp = requests.get(f"https://api.abuseipdb.com/api/v2/check?ipAddress={ip}", headers=...)
-    # return resp.json().get("data", {}).get("abuseConfidenceScore", 0) > 50
-    return False
+            if "permitrootlogin yes" in content:
+                issues.append("Insecure: Root login enabled")
+            if "passwordauthentication yes" in content:
+                issues.append("Insecure: Password auth enabled")
+                
+        return issues
+    
+    except Exception as e:
+        console.print(f"[red]Audit failed: {str(e)}[/red]")
+        sys.exit(1)
 
 # ====== CLI Commands ======
 @app.command()
 def analyze(
-    log_path: Path = typer.Argument(..., help="Path to log file"),
-    output: Optional[str] = typer.Option("table", help="Output format: table/json"),
+    path: str = typer.Argument(..., help="Log file path"),
+    output: str = typer.Option("text", help="Output format (text/json)")
 ):
-    """Analyze log files for security events."""
+    """Analyze log files for security events"""
     show_banner()
-    patterns, remedies = load_patterns()
-    stats, findings, total_lines = analyze_log_file(log_path, patterns, remedies)
-
+    results = analyze_logs(Path(path))
+    
     if output == "json":
-        result = {
-            "file": str(log_path),
-            "total_lines": total_lines,
-            "stats": dict(stats),
-            "findings": findings,
-        }
-        console.print_json(json.dumps(result, indent=2))
+        console.print(json.dumps(results, indent=2))
     else:
-        table = Table(title=f"Log Analysis: {log_path.name}", show_header=True, header_style="bold blue")
-        table.add_column("Event", style="cyan")
+        table = Table(title="Security Analysis Results", show_header=True)
+        table.add_column("Event Type", style="cyan")
         table.add_column("Count", style="magenta")
-        table.add_column("Remedy", style="green")
-        for k, v in stats.items():
-            table.add_row(k, str(v), remedies.get(k, ""))
+        table.add_column("Recommended Action", style="green")
+        
+        for event, count in results.items():
+            remedy = DEFAULT_REMEDIES.get(event, "Investigate manually")
+            table.add_row(event, str(count), remedy)
+            
         console.print(table)
-        if not stats:
-            console.print("[green]No suspicious events detected.[/green]")
-        else:
-            for k, lines in findings.items():
-                console.print(f"[yellow]{k} findings:[/yellow]")
-                for l in lines[:5]:
-                    console.print(f"  [white]{l}[/white]")
-                if len(lines) > 5:
-                    console.print(f"  ...and {len(lines)-5} more\n")
 
 @app.command()
-def config_check(
-    config_path: Path = typer.Argument(..., help="Path to config file"),
-    config_type: str = typer.Argument(..., help="Config type (ssh/nginx/apache)"),
+def audit(
+    config_path: str = typer.Argument(..., help="Path to config file"),
+    config_type: str = typer.Argument(..., help="Type: ssh/nginx/apache")
 ):
-    """Audit configuration files for insecure settings."""
+    """Audit configuration files for security issues"""
     show_banner()
-    issues = analyze_config_file(config_path, config_type)
+    issues = audit_config(Path(config_path), config_type)
+    
     if issues:
-        console.print(f"[red]Insecure settings detected in {config_path}:[/red]")
-        for i in issues:
-            console.print(f"  [yellow]- {i}[/yellow]")
+        console.print(f"[red]Found {len(issues)} issues in {config_path}:[/red]")
+        for issue in issues:
+            console.print(f"  • {issue}")
     else:
-        console.print(f"[green]No critical issues found in {config_path}.[/green]")
-
-@app.command()
-def patterns():
-    """Show current detection patterns."""
-    show_banner()
-    patterns, remedies = load_patterns()
-    table = Table(title="Detection Patterns", show_header=True, header_style="bold blue")
-    table.add_column("Name", style="cyan")
-    table.add_column("Regex", style="magenta")
-    table.add_column("Remedy", style="green")
-    for k, v in patterns.items():
-        table.add_row(k, v.pattern, remedies.get(k, ""))
-    console.print(table)
-
-@app.command()
-def add_pattern(
-    name: str = typer.Argument(..., help="Pattern name"),
-    regex: str = typer.Argument(..., help="Regex pattern"),
-    remedy: str = typer.Argument(..., help="Remedy/response"),
-):
-    """Add a custom detection pattern."""
-    patterns, remedies = load_patterns()
-    try:
-        patterns[name] = re.compile(regex, re.IGNORECASE)
-        remedies[name] = remedy
-        save_patterns(patterns, remedies)
-        console.print(f"[green]Pattern '{name}' added.[/green]")
-    except re.error as e:
-        console.print(f"[red]Invalid regex: {e}[/red]")
+        console.print(f"[green]No issues found in {config_path}[/green]")
 
 @app.command()
 def update():
-    """Update LogGuardian via git pull."""
+    """Update LogGuardian to latest version"""
     show_banner()
     try:
-        result = subprocess.run(['git', 'pull'], capture_output=True, text=True, check=True)
-        console.print(result.stdout)
-        console.print("[green]Update completed successfully.[/green]")
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Update failed: {e.stderr}[/red]")
+        result = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            console.print("[green]Update successful![/green]")
+            console.print(result.stdout)
+        else:
+            console.print("[red]Update failed:[/red]")
+            console.print(result.stderr)
+    except Exception as e:
+        console.print(f"[red]Update error: {str(e)}[/red]")
 
 @app.command()
 def version():
-    """Show version info."""
+    """Show version information"""
     show_banner()
-    console.print("[bold]LogGuardian version 1.0[/bold]")
-
-@app.command()
-def help():
-    """Show help."""
-    show_banner()
-    console.print("""
-[bold]Usage:[/bold]
-  logguardian analyze <logfile> [--output table|json]
-  logguardian config-check <configfile> <ssh|nginx|apache>
-  logguardian patterns
-  logguardian add-pattern <name> <regex> <remedy>
-  logguardian update
-  logguardian version
-""")
+    console.print("[bold]LogGuardian v1.0[/bold]")
+    console.print("Maintained by Blue Team Security")
 
 if __name__ == "__main__":
     app()
