@@ -17,8 +17,6 @@ pip install -r requirements.txt
 chmod +x logguardian.py
 sudo apt-get install libmagic1 # For Debian/Ubuntu systems
 
-text
-
 ## 📦 Dependencies
 typer[all]==0.9.0
 rich==13.7.1
@@ -26,22 +24,18 @@ pyfiglet==0.8.post1
 python-magic==0.4.27
 cve-bin-tool==4.0
 
-text
-
 ## 🚀 Usage
-Log analysis with table output
+# Log analysis with table output
 ./logguardian.py analyze /var/log/auth.log
 
-Binary scan with CVE checks and HTML report
+# Binary scan with CVE checks and HTML report
 ./logguardian.py scan-binary suspicious.exe --cve --output-format html
 
-SSH config security audit
+# SSH config security audit
 ./logguardian.py config-check /etc/ssh/sshd_config ssh
 
-Generate JSON report for log analysis
+# Generate JSON report for log analysis
 ./logguardian.py analyze /var/log/secure --output-format json > report.json
-
-text
 """
 
 import typer
@@ -287,4 +281,4 @@ def config_check(
         raise typer.Exit(code=1)
 
 if __name__ == "__main__":
- app()
+    app()
