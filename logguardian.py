@@ -1,210 +1,227 @@
 #!/usr/bin/env python3
 """
 LogGuardian - Blue Team Security Analyzer 🔐
+Advanced log analysis and security monitoring toolkit
 """
 
 import typer
-import hashlib
-import subprocess
-import json
 import re
-import string
-import binascii
-from datetime import datetime
+import json
+import sys
+import gzip
+import ipaddress
 from pathlib import Path
-from typing import Optional
-from io import BytesIO
-from html import escape
-
+from datetime import datetime
+from typing import Optional, List, Dict
+from collections import defaultdict
+import geoip2.database
+import requests
 from rich.console import Console
 from rich.table import Table
+from rich.progress import track
 import pyfiglet
+import hashlib
 
 app = typer.Typer()
 console = Console()
 
-def show_banner():
-    banner = pyfiglet.figlet_format("UBXROOT", font="slant")
-    console.print(f"[bright_cyan]{banner}[/bright_cyan]")
-    console.print("[bright_yellow]LogGuardian – Security Analyzer v2.1[/bright_yellow]\n")
+# Configuration
+CONFIG_FILE = Path.home() / ".logguardian_config.json"
+GEOIP_DB_PATH = Path("/usr/share/GeoIP/GeoLite2-City.mmdb")
+THREAT_INTEL_API = "https://api.threatintel.com/v1/check/ip/"
 
-# Security analysis patterns
-RULES = {
-    "bruteforce": {
-        "pattern": r"Failed password for .* from (\d+\.\d+\.\d+\.\d+)",
-        "description": "SSH brute force attempt detected",
-        "severity": "HIGH"
-    },
-    "port_scan": {
-        "pattern": r"Connection reset by (\d+\.\d+\.\d+\.\d+) port \d+",
-        "description": "Possible port scanning activity",
-        "severity": "MEDIUM"
-    }
-}
-
-def calculate_sha256(file_path: Path):
-    sha256 = hashlib.sha256()
-    with open(file_path, 'rb') as f:
-        while chunk := f.read(4096):
-            sha256.update(chunk)
-    return sha256.hexdigest()
-
-def extract_printable_strings(file_path: Path, min_length=4):
-    printable = set(bytes(string.printable, 'ascii'))
-    strings = []
-    current_string = []
+class LogAnalyzer:
+    """Core log analysis engine with security focus"""
     
-    with open(file_path, 'rb') as f:
-        for byte in f.read():
-            if byte in printable:
-                current_string.append(chr(byte))
-            else:
-                if len(current_string) >= min_length:
-                    strings.append(''.join(current_string))
-                current_string = []
-        if current_string:
-            strings.append(''.join(current_string))
-    return strings
-
-def generate_txt_report(scan_data, file_path):
-    with open(file_path, 'w') as f:
-        f.write(f"Binary Scan Report\n{'='*20}\n")
-        f.write(f"File: {scan_data['filename']}\n")
-        f.write(f"SHA256: {scan_data['sha256']}\n")
-        f.write("\nDetected Strings:\n")
-        for s in scan_data['strings']:
-            f.write(f"- {s}\n")
-        if scan_data.get('cve_results'):
-            f.write("\nVulnerabilities:\n")
-            for vuln in scan_data['cve_results']:
-                f.write(f"- {vuln}\n")
-
-def generate_html_report(scan_data, file_path):
-    html = f"""<html>
-<head><title>Binary Scan Report</title></head>
-<body>
-<h1>Binary Analysis Report</h1>
-<h2>File: {escape(scan_data['filename'])}</h2>
-<p><strong>SHA256:</strong> {scan_data['sha256']}</p>
-<h3>Detected Strings ({len(scan_data['strings'])})</h3>
-<ul>"""
-    for s in scan_data['strings'][:1000]:
-        html += f"<li>{escape(s)}</li>"
-    html += "</ul>"
-    if scan_data.get('cve_results'):
-        html += "<h3>Vulnerabilities</h3><ul>"
-        for vuln in scan_data['cve_results']:
-            html += f"<li>{escape(vuln)}</li>"
-        html += "</ul>"
-    html += "</body></html>"
-    with open(file_path, 'w') as f:
-        f.write(html)
-
-@app.command()
-def scan_binary(
-    file_path: Path = typer.Argument(..., help="Path to binary file"),
-    output_format: str = typer.Option("table", help="Output format: table, txt, json, html"),
-    check_cves: bool = typer.Option(False, "--cve", help="Enable CVE vulnerability checking"),
-    output_file: Optional[Path] = typer.Option(None, help="Output file path")
-):
-    """Analyze binary files for security risks"""
-    show_banner()
-
-    if not file_path.exists():
-        console.print("[red]Error: File not found[/red]")
-        raise typer.Exit(code=1)
-
-    scan_data = {
-        "filename": str(file_path),
-        "sha256": calculate_sha256(file_path),
-        "strings": extract_printable_strings(file_path),
-        "cve_results": []
-    }
-
-    if check_cves:
-        try:
-            result = subprocess.run(
-                ['cve-bin-tool', str(file_path)],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            scan_data['cve_results'] = result.stdout.splitlines()
-        except Exception as e:
-            console.print(f"[yellow]CVE check failed: {e}[/yellow]")
-
-    if output_format == "table":
-        table = Table(show_header=True, header_style="bold blue")
-        table.add_column("Property", style="cyan")
-        table.add_column("Value", style="magenta")
+    def __init__(self):
+        self.patterns = self.load_security_patterns()
+        self.stats = defaultdict(lambda: defaultdict(int))
+        self.geoip_reader = None
+        self.threat_cache = {}
         
-        table.add_row("File Path", scan_data['filename'])
-        table.add_row("SHA256", scan_data['sha256'])
-        table.add_row("Detected Strings", str(len(scan_data['strings'])))
-        table.add_row("CVE Checks", "Enabled" if check_cves else "Disabled")
+        if GEOIP_DB_PATH.exists():
+            try:
+                self.geoip_reader = geoip2.database.Reader(str(GEOIP_DB_PATH))
+            except Exception as e:
+                console.print(f"[yellow]⚠️ GeoIP database error: {str(e)}[/yellow]")
+
+    def load_security_patterns(self) -> Dict[str, re.Pattern]:
+        """Load security detection patterns"""
+        return {
+            'xss': re.compile(r'<script.*?>.*?</script>', re.IGNORECASE),
+            'sqli': re.compile(r'(\'|--|;|UNION.*SELECT)', re.IGNORECASE),
+            'lfi': re.compile(r'(\.\./|\.\\|etc/passwd)', re.IGNORECASE),
+            'rce': re.compile(r'(/bin/sh|cmd\.exe|\|bash)', re.IGNORECASE),
+            'bruteforce': re.compile(r'Failed password for', re.IGNORECASE),
+            'port_scan': re.compile(r'Connection reset by (\d+\.\d+\.\d+\.\d+) port \d+'),
+            'cve': re.compile(r'CVE-\d{4}-\d{4,7}', re.IGNORECASE)
+        }
+
+    def analyze_file(self, file_path: Path, realtime: bool = False):
+        """Analyze log file with security patterns"""
+        open_func = gzip.open if file_path.suffix == '.gz' else open
         
-        if scan_data['cve_results']:
-            table.add_row("Vulnerabilities Found", str(len(scan_data['cve_results'])))
+        with open_func(file_path, 'rt', encoding='utf-8', errors='ignore') as f:
+            for line in track(f, description="Analyzing logs..."):
+                self.process_line(line.strip())
+                
+                if realtime:
+                    # Implement real-time processing logic
+                    pass
+
+    def process_line(self, line: str):
+        """Process individual log line"""
+        # Basic statistics
+        self.stats['general']['total_lines'] += 1
         
-        console.print(table)
+        # Security analysis
+        for pattern_name, pattern in self.patterns.items():
+            if pattern.search(line):
+                self.stats['security'][pattern_name] += 1
+                self.log_security_event(pattern_name, line)
+                
+        # IP analysis
+        ips = re.findall(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', line)
+        for ip in ips:
+            if self.is_valid_ip(ip):
+                self.process_ip(ip)
+
+    def process_ip(self, ip: str):
+        """Analyze IP address for threats"""
+        self.stats['ips'][ip] += 1
         
-    elif output_format == "json":
-        output = json.dumps(scan_data, indent=2)
-        if output_file:
-            output_file.write_text(output)
-        else:
-            console.print(output)
-    
-    elif output_format in ["txt", "html"]:
-        if not output_file:
-            output_file = file_path.with_suffix(f".{output_format}")
+        # Geolocation lookup
+        if self.geoip_reader:
+            try:
+                response = self.geoip_reader.city(ip)
+                self.stats['geo'][response.country.iso_code] += 1
+            except:
+                pass
+        
+        # Threat intelligence check
+        if ip not in self.threat_cache:
+            self.threat_cache[ip] = self.check_threat_intel(ip)
             
-        if output_format == "txt":
-            generate_txt_report(scan_data, output_file)
-        else:
-            generate_html_report(scan_data, output_file)
-        
-        console.print(f"[green]Report generated: {output_file}[/green]")
+        if self.threat_cache[ip]:
+            self.stats['security']['malicious_ips'] += 1
+
+    def check_threat_intel(self, ip: str) -> bool:
+        """Check IP against threat intelligence feed"""
+        try:
+            response = requests.get(f"{THREAT_INTEL_API}{ip}", timeout=3)
+            return response.json().get('malicious', False)
+        except Exception as e:
+            return False
+
+    def is_valid_ip(self, ip: str) -> bool:
+        """Validate IP address format"""
+        try:
+            ipaddress.ip_address(ip)
+            return True
+        except ValueError:
+            return False
+
+    def log_security_event(self, event_type: str, line: str):
+        """Log security events with alerts"""
+        console.print(f"[red]🚨 ALERT: {event_type.upper()} detected[/red]")
+        console.print(f"   [white]{line}[/white]\n")
+
+class Reporter:
+    """Reporting and output generation"""
     
-    else:
-        console.print("[red]Invalid output format[/red]")
-        raise typer.Exit(code=1)
+    @staticmethod
+    def generate_text_report(analyzer: LogAnalyzer) -> str:
+        """Generate text format report"""
+        report = [
+            "LogGuardian Security Report",
+            "=" * 40,
+            f"Analysis timestamp: {datetime.now().isoformat()}",
+            f"Total lines processed: {analyzer.stats['general']['total_lines']}",
+            "\nSecurity Findings:"
+        ]
+        
+        for category, count in analyzer.stats['security'].items():
+            report.append(f"- {category.replace('_', ' ').title()}: {count}")
+            
+        return "\n".join(report)
+
+    @staticmethod
+    def generate_json_report(analyzer: LogAnalyzer) -> str:
+        """Generate JSON format report"""
+        return json.dumps(analyzer.stats, indent=2)
+
+    @staticmethod
+    def display_live_table(analyzer: LogAnalyzer):
+        """Display live analysis results in rich table"""
+        table = Table(title="Live Security Analysis", show_header=True, header_style="bold magenta")
+        table.add_column("Category", style="cyan")
+        table.add_column("Count", style="green")
+        
+        for category, count in analyzer.stats['security'].items():
+            table.add_row(category.title(), str(count))
+            
+        console.print(table)
+
+# CLI Commands ----------------------------------------------------------------
 
 @app.command()
-def config_check(
-    config_path: Path = typer.Argument(..., help="Path to config file"),
-    check_type: str = typer.Argument(..., help="Config type (nginx/apache/ssh)")
+def analyze(
+    log_path: Path = typer.Argument(..., help="Path to log file/directory"),
+    output_format: str = typer.Option("text", help="Output format (text/json)"),
+    realtime: bool = typer.Option(False, "--realtime", help="Enable real-time monitoring"),
+    geoip: bool = typer.Option(False, help="Enable GeoIP lookups")
 ):
-    """Audit configuration files for security issues"""
+    """Analyze log files for security threats"""
     show_banner()
-
-    try:
-        with open(config_path, 'r') as f:
-            config_content = f.read()
-
-            if check_type == "ssh":
-                if "PermitRootLogin yes" in config_content:
-                    console.print("[red]ALERT: SSH root login enabled[/red]")
-                if "PasswordAuthentication yes" in config_content:
-                    console.print("[red]ALERT: Password authentication enabled[/red]")
-
-    except Exception as e:
-        console.print(f"[red]Error reading config file: {e}[/red]")
-        raise typer.Exit(code=1)
-
-if __name__ == "__main__":
-    app()
     
-import subprocess
-import sys
+    analyzer = LogAnalyzer()
+    
+    if log_path.is_dir():
+        for log_file in log_path.glob("*.log*"):
+            analyzer.analyze_file(log_file, realtime)
+    else:
+        analyzer.analyze_file(log_path, realtime)
+    
+    if output_format == "json":
+        console.print(Reporter.generate_json_report(analyzer))
+    else:
+        console.print(Reporter.generate_text_report(analyzer))
+        
+    Reporter.display_live_table(analyzer)
 
 @app.command()
 def update():
-    """Update LogGuardian by pulling the latest changes from GitHub."""
+    """Update LogGuardian to latest version"""
+    show_banner()
+    console.print("🔄 Checking for updates...")
+    
     try:
-        result = subprocess.run(['git', 'pull'], capture_output=True, text=True, check=True)
-        print(result.stdout)
-        print("\nUpdate completed successfully.")
+        result = subprocess.run(['git', 'pull', 'origin', 'main'], 
+                              check=True, capture_output=True, text=True)
+        console.print(f"[green]✅ Update successful![/green]\n{result.stdout}")
     except subprocess.CalledProcessError as e:
-        print(f"Error during update: {e.stderr}")
-        sys.exit(1)
+        console.print(f"[red]❌ Update failed:[/red]\n{e.stderr}")
+
+@app.command()
+def patterns():
+    """View current security detection patterns"""
+    show_banner()
+    analyzer = LogAnalyzer()
+    
+    table = Table(title="Active Security Patterns", show_header=True, header_style="bold blue")
+    table.add_column("Pattern Name", style="cyan")
+    table.add_column("Regular Expression", style="magenta")
+    
+    for name, pattern in analyzer.patterns.items():
+        table.add_row(name.upper(), pattern.pattern)
+        
+    console.print(table)
+
+def show_banner():
+    """Display ASCII art banner"""
+    banner = pyfiglet.figlet_format("LogGuardian", font="slant")
+    console.print(f"[bright_cyan]{banner}[/bright_cyan]")
+    console.print("[bright_yellow]Blue Team Security Analyzer v2.0[/bright_yellow]\n")
+
+if __name__ == "__main__":
+    app()
