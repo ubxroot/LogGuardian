@@ -1,23 +1,47 @@
 #!/usr/bin/env python3
+"""
+LogGuardian - Blue Team Security Analyzer 🔐
+"""
+
 import typer
 import hashlib
 import subprocess
-from rich.console import Console
-from rich.table import Table
-from pathlib import Path
-import pyfiglet
 import json
-from typing import Optional
-
-# Add new imports
-from io import BytesIO
-import binascii
+import re
 import string
+import binascii
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+from io import BytesIO
 from html import escape
 
-# ... existing imports and banner code ...
+from rich.console import Console
+from rich.table import Table
+import pyfiglet
 
-# Add binary analysis functions
+app = typer.Typer()
+console = Console()
+
+def show_banner():
+    banner = pyfiglet.figlet_format("UBXROOT", font="slant")
+    console.print(f"[bright_cyan]{banner}[/bright_cyan]")
+    console.print("[bright_yellow]LogGuardian – Security Analyzer v2.1[/bright_yellow]\n")
+
+# Security analysis patterns
+RULES = {
+    "bruteforce": {
+        "pattern": r"Failed password for .* from (\d+\.\d+\.\d+\.\d+)",
+        "description": "SSH brute force attempt detected",
+        "severity": "HIGH"
+    },
+    "port_scan": {
+        "pattern": r"Connection reset by (\d+\.\d+\.\d+\.\d+) port \d+",
+        "description": "Possible port scanning activity",
+        "severity": "MEDIUM"
+    }
+}
+
 def calculate_sha256(file_path: Path):
     sha256 = hashlib.sha256()
     with open(file_path, 'rb') as f:
@@ -40,10 +64,8 @@ def extract_printable_strings(file_path: Path, min_length=4):
                 current_string = []
         if current_string:
             strings.append(''.join(current_string))
-    
     return strings
 
-# Add new output format handlers
 def generate_txt_report(scan_data, file_path):
     with open(file_path, 'w') as f:
         f.write(f"Binary Scan Report\n{'='*20}\n")
@@ -66,7 +88,7 @@ def generate_html_report(scan_data, file_path):
 <p><strong>SHA256:</strong> {scan_data['sha256']}</p>
 <h3>Detected Strings ({len(scan_data['strings'])})</h3>
 <ul>"""
-    for s in scan_data['strings'][:1000]:  # Limit to first 1000 strings
+    for s in scan_data['strings'][:1000]:
         html += f"<li>{escape(s)}</li>"
     html += "</ul>"
     if scan_data.get('cve_results'):
@@ -75,11 +97,9 @@ def generate_html_report(scan_data, file_path):
             html += f"<li>{escape(vuln)}</li>"
         html += "</ul>"
     html += "</body></html>"
-    
     with open(file_path, 'w') as f:
         f.write(html)
 
-# Add new command for binary scanning
 @app.command()
 def scan_binary(
     file_path: Path = typer.Argument(..., help="Path to binary file"),
@@ -87,21 +107,20 @@ def scan_binary(
     check_cves: bool = typer.Option(False, "--cve", help="Enable CVE vulnerability checking"),
     output_file: Optional[Path] = typer.Option(None, help="Output file path")
 ):
+    """Analyze binary files for security risks"""
     show_banner()
 
     if not file_path.exists():
         console.print("[red]Error: File not found[/red]")
         raise typer.Exit(code=1)
 
-    # Binary analysis
     scan_data = {
-        'filename': str(file_path),
-        'sha256': calculate_sha256(file_path),
-        'strings': extract_printable_strings(file_path),
-        'cve_results': []
+        "filename": str(file_path),
+        "sha256": calculate_sha256(file_path),
+        "strings": extract_printable_strings(file_path),
+        "cve_results": []
     }
 
-    # Optional CVE check
     if check_cves:
         try:
             result = subprocess.run(
@@ -114,7 +133,6 @@ def scan_binary(
         except Exception as e:
             console.print(f"[yellow]CVE check failed: {e}[/yellow]")
 
-    # Output handling
     if output_format == "table":
         table = Table(show_header=True, header_style="bold blue")
         table.add_column("Property", style="cyan")
@@ -152,4 +170,27 @@ def scan_binary(
         console.print("[red]Invalid output format[/red]")
         raise typer.Exit(code=1)
 
-# ... existing config_check command ...
+@app.command()
+def config_check(
+    config_path: Path = typer.Argument(..., help="Path to config file"),
+    check_type: str = typer.Argument(..., help="Config type (nginx/apache/ssh)")
+):
+    """Audit configuration files for security issues"""
+    show_banner()
+
+    try:
+        with open(config_path, 'r') as f:
+            config_content = f.read()
+
+            if check_type == "ssh":
+                if "PermitRootLogin yes" in config_content:
+                    console.print("[red]ALERT: SSH root login enabled[/red]")
+                if "PasswordAuthentication yes" in config_content:
+                    console.print("[red]ALERT: Password authentication enabled[/red]")
+
+    except Exception as e:
+        console.print(f"[red]Error reading config file: {e}[/red]")
+        raise typer.Exit(code=1)
+
+if __name__ == "__main__":
+    app()
