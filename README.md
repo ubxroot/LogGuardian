@@ -210,7 +210,7 @@ def update_tool():
     """
     # Determine the path to the current script's directory
     repo_path = Path(__file__).resolve().parent
-    
+
     # Check if the current directory is a Git repository
     if not (repo_path / ".git").is_dir():
         console.print("[bold red]Error:[/] Not a git repository. Please clone LogGuardian using 'git clone' to enable updates.", style="bold red")
