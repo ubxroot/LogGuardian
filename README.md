@@ -8,16 +8,40 @@ LogGuardian is a command-line tool designed to help blue teams analyze logs and 
 
 ## ✨ Features
 
-* **Detects SSH brute-force attempts:** Identifies multiple failed SSH login attempts.
-* **Detects port scanning activity:** Flags suspicious network scanning patterns.
-* **Detects SQL injection attempts in logs:** Scans web server or application logs for common SQLi signatures.
-* **Audits SSH configuration files for insecure settings:** Checks for weak ciphers, insecure authentication methods, and other common misconfigurations.
-* **Simple, color-coded terminal output:** Easy-to-read results for quick analysis.
-* **Supports custom detection patterns via a config file:** Extend detection capabilities to suit your specific needs.
-* **Self-update via `git pull`:** Keep your tool up-to-date with the latest features and patterns.
-* **Minimal dependencies and easy to use:** Get up and running quickly.
+## 🔍 Binary File Scanning 
 
-## 🚀 Installation
+* Analyze .exe, .dll, .bin, .elf, and other formats.
+* Extract headers, strings, hashes (MD5, SHA1, SHA256).
+* Enrich results with VirusTotal (optional), YARA, and known malware signatures.
+
+## 📁 Log Analysis Engine
+
+* Supports log formats: syslog, auth.log, Windows Event Logs (EVTX), Apache/Nginx access logs, and custom JSON.
+* Regex and rule-based parsing.
+* Custom rules for detecting brute force, privilege escalation, and suspicious behavior.
+
+## 🚨 Threat Intelligence Correlation
+
+* Integrates with threat feeds like AbuseIPDB, AlienVault OTX, and custom TI sources.
+* Auto-correlates IPs, hashes, domains found in logs/binaries.
+* IOC hunting with local cache for offline use.
+
+## 🛡️ Real-time Monitoring
+* Real-time tailing and monitoring of logs.
+* Alerts with color-coded output in CLI.
+* Optional webhook/Slack notification integration.
+
+## 🔐 File Integrity and IOC Scanner
+* Recursively monitors directories for file changes.
+* Detects added/modified binaries with signature mismatches.
+* Supports custom scan policies for file integrity checks.
+
+## 📊 Output and Reporting
+* Supports output formats: table, json, csv, html.
+* Generates summary reports for each analysis session.
+* Option to export reports to PDF (via CLI flag).
+
+## **🚀 Installation**
 
 1.  **Clone the repository:**
     ```bash
