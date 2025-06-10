@@ -226,7 +226,6 @@ def show_banner():
 
 if __name__ == "__main__":
     app()
-"""
 
 with open("/mnt/data/logguardian.py", "w") as f:
     f.write(updated_code)
