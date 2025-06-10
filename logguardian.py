@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-\"\"\"
+
+"""
 LogGuardian - Blue Team Security Analyzer 🔐
 Advanced log analysis and security monitoring toolkit
-\"\"\"
+"""
 
 import typer
 import re
