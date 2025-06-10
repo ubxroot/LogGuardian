@@ -35,27 +35,27 @@ LogGuardian is a command-line tool designed to help blue teams analyze logs and 
 ## 💡 Usage
 
 # Basic log analysis
-python logguardian.py analyze /var/log/auth.log --output-format table
+**python logguardian.py analyze /var/log/auth.log --output-format table**
 
 # Binary file scan
-python logguardian.py scan /samples/malware.exe --verbose
+**python logguardian.py scan /samples/malware.exe --verbose**
 
 # Enable threat intelligence lookup
-python logguardian.py analyze /logs/web.log --enable-ti
+**python logguardian.py analyze /logs/web.log --enable-ti**
 
 # Live directory monitoring
-python logguardian.py monitor /var/log --rules rules.json
+**python logguardian.py monitor /var/log --rules rules.json**
 
 ## 📁 Directory Structure
 
-logguardian/
-🗂 core/              # Main engine modules
-🗂 rules/             # Predefined and custom rule sets
-🗂 reports/           # Output report files
-🗂 examples/          # Sample logs and binaries
-🗂 utils/             # Helper functions
-🔍 logguardian.py     # Entry point CLI
-🔍 README.md
+* logguardian/
+* 🗂 core/              # Main engine modules
+* 🗂 rules/             # Predefined and custom rule sets
+* 🗂 reports/           # Output report files
+* 🗂 examples/          # Sample logs and binaries
+* 🗂 utils/             # Helper functions
+* 🔍 logguardian.py     # Entry point CLI
+* 🔍 README.md
 
 ## 🌐 Integrations
 
