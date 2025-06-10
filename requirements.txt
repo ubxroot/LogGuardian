@@ -1,4 +1,6 @@
+echo "geoip2
 typer
 rich
+requests
 pyfiglet
-pyyaml
+python-magic" > requirements.txt
