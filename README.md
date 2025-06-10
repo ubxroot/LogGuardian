@@ -21,15 +21,15 @@ LogGuardian is a command-line tool designed to help blue teams analyze logs and 
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/yourusername/logguardian.git](https://github.com/yourusername/logguardian.git)
+    git clone [https://github.com/ubxroot/LogGuardian.git]
     cd logguardian
     pip install -r requirements.txt
     ```
-    *(Remember to replace `yourusername` with your actual GitHub username)*
 
 2.  **Install dependencies:**
     ```bash
     pip install typer
+    pip install -r requirements.txt
     ```
 
 ## 💡 Usage
@@ -59,30 +59,20 @@ LogGuardian is a command-line tool designed to help blue teams analyze logs and 
 
 ## 🌐 Integrations
 
-Platform
+**Platform**
 
-Supported
+ **Supported**
 
-Linux
-
-✅
-
-Windows
-
-✅
-
-MacOS
-
-✅
+* **Linux       ✅**
+* **Windows     ✅**
+* **MacOS       ✅**
 
 ## 📚 Documentation
 
-📘 Full Wiki Documentation
-
-📖 CLI Reference
-
-🧪 Testing Scenarios
+* **📘 Full Wiki Documentation**
+* **📖 CLI Reference**
+* **🧪 Testing Scenarios**
 
 ## 🛡️ License
 
-LogGuardian is licensed under the MIT License. See the LICENSE file for more details.
+* **LogGuardian is licensed under the MIT License. See the LICENSE file for more details.**
